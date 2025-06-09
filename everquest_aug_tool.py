@@ -37,7 +37,6 @@ for stat, default in default_multipliers.items():
 st.title("EverQuest Aug Tool")
 uploaded_file = st.file_uploader("Upload your EverQuest /output inventory .txt file", type="txt")
 
-# Aug extraction from raw text
 EQUIP_SLOTS = {
     "Charm", "Ear", "Head", "Face", "Neck", "Shoulders", "Arms", "Back", "Wrist",
     "Range", "Hands", "Primary", "Secondary", "Fingers", "Chest", "Legs", "Feet", "Waist"
@@ -83,35 +82,72 @@ def extract_augs_from_inventory(txt_file):
 
     return pd.DataFrame(aug_rows)
 
-# Score function
+def extract_all_augs_from_inventory(txt_file):
+    aug_rows = []
+    lines = txt_file.getvalue().decode("utf-8").splitlines()
+    for line in lines:
+        parts = line.strip().split("\t")
+        if len(parts) != 5:
+            continue
+        location, name, item_id, count, slots = parts
+        if "-Slot" in location and name != "Empty" and item_id != "0":
+            try:
+                item_id_int = int(item_id)
+                if item_id_int in aug_db.index:
+                    aug_rows.append({
+                        "ID": item_id_int,
+                        "Name": name,
+                        "Location": location
+                    })
+            except ValueError:
+                continue
+    return pd.DataFrame(aug_rows)
+
 def compute_score(row, multipliers):
     return sum(row[stat] * multipliers[stat] for stat in multipliers)
 
-# Process uploaded file
 if uploaded_file:
-    inv_df = extract_augs_from_inventory(uploaded_file)
+    equipped_df = extract_augs_from_inventory(uploaded_file)
+    all_augs_df = extract_all_augs_from_inventory(uploaded_file)
 
-    if inv_df.empty:
+    if equipped_df.empty and all_augs_df.empty:
         st.error("No augmentations found in this file.")
     else:
-        inv_df = inv_df[inv_df["ID"].isin(aug_db.index)]
-        merged = pd.merge(inv_df, aug_db, how="inner", left_on="ID", right_index=True)
+        equipped_df = equipped_df[equipped_df["ID"].isin(aug_db.index)]
+        merged_eq = equipped_df.merge(aug_db, how="inner", left_on="ID", right_index=True)
 
         for stat in default_multipliers:
-            if stat.lower() in merged.columns:
-                merged[stat] = pd.to_numeric(merged[stat.lower()], errors="coerce").fillna(0)
+            if stat in merged_eq.columns:
+                merged_eq[stat] = pd.to_numeric(merged_eq[stat], errors="coerce").fillna(0)
             else:
-                merged[stat] = 0
+                merged_eq[stat] = 0
 
-        merged["Score"] = merged.apply(lambda row: compute_score(row, multipliers), axis=1)
-        merged["FocusEffect"] = merged.get("focusname", "")
+        merged_eq["Score"] = merged_eq.apply(lambda row: compute_score(row, multipliers), axis=1)
+        merged_eq["FocusEffect"] = merged_eq.get("focusname", "")
 
         st.subheader("Equipped Augmentations (Scored)")
         display_cols = ["ParentSlot", "Name", "ID", "Score"] + list(default_multipliers.keys()) + ["FocusEffect"]
-        st.dataframe(
-            merged[display_cols]
-            .sort_values(by="Score", ascending=False)
-            .reset_index(drop=True),
-            use_container_width=True,
-            hide_index=True
-        )
+        styled_eq = merged_eq[display_cols].sort_values(by="Score", ascending=False).reset_index(drop=True)
+        styled_eq = styled_eq.style.format({stat: lambda x: "" if x == 0 else int(x) for stat in default_multipliers})
+        st.dataframe(styled_eq, use_container_width=True, hide_index=True)
+
+        # Show unequipped augs: all - equipped
+        if not all_augs_df.empty:
+            equipped_ids = set(equipped_df["ID"])
+            unequipped_df = all_augs_df[~all_augs_df["ID"].isin(equipped_ids)]
+            merged_uneq = unequipped_df.merge(aug_db, how="inner", left_on="ID", right_index=True)
+
+            for stat in default_multipliers:
+                if stat in merged_uneq.columns:
+                    merged_uneq[stat] = pd.to_numeric(merged_uneq[stat], errors="coerce").fillna(0)
+                else:
+                    merged_uneq[stat] = 0
+
+            merged_uneq["Score"] = merged_uneq.apply(lambda row: compute_score(row, multipliers), axis=1)
+            merged_uneq["FocusEffect"] = merged_uneq.get("focusname", "")
+
+            st.subheader("Unequipped Augmentations (Scored)")
+            display_cols_uneq = ["Location", "Name", "ID", "Score"] + list(default_multipliers.keys()) + ["FocusEffect"]
+            styled_uneq = merged_uneq[display_cols_uneq].sort_values(by="Score", ascending=False).reset_index(drop=True)
+            styled_uneq = styled_uneq.style.format({stat: lambda x: "" if x == 0 else int(x) for stat in default_multipliers})
+            st.dataframe(styled_uneq, use_container_width=True, hide_index=True)
