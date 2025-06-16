@@ -1,69 +1,88 @@
 """
 Valuation helpers for the EverQuest Aug Tool.
-
-• attach_stats()  – left-join equipped augment IDs to the master database
-• add_item_value() – compute weighted ItemValue using user multipliers
 """
 
 from __future__ import annotations
 
+import re
+from typing import Set
+
 import pandas as pd
 
 
-# ---------------------------------------------------------------------
-# Join equipped IDs to the augmentation database
-# ---------------------------------------------------------------------
+# ────────────────────────────────────────────────────────────────────
+# Attach stats from the master DB
+# ────────────────────────────────────────────────────────────────────
 def attach_stats(
     equipped: pd.DataFrame,
     aug_db: pd.DataFrame,
 ) -> pd.DataFrame:
-    """
-    Parameters
-    ----------
-    equipped : DataFrame
-        Columns: EquipSlot, ID (integer)
-    aug_db : DataFrame
-        Master aug database **indexed by ID** (see _load_aug_db).
-
-    Returns
-    -------
-    DataFrame
-        All columns from `equipped` plus the stat columns from `aug_db`.
-    """
     equipped = equipped.copy()
     equipped["ID"] = pd.to_numeric(equipped["ID"], errors="coerce").astype("Int64")
 
-    # aug_db has ID as its index → merge on right_index
-    merged = equipped.merge(
+    return equipped.merge(
         aug_db, left_on="ID", right_index=True, how="left", sort=False
     )
-    return merged
 
 
-# ---------------------------------------------------------------------
-# Compute ItemValue column
-# ---------------------------------------------------------------------
+# ────────────────────────────────────────────────────────────────────
+# Weighted ItemValue
+# ────────────────────────────────────────────────────────────────────
 def add_item_value(
     df: pd.DataFrame,
     multipliers: dict[str, float],
 ) -> pd.DataFrame:
-    """
-    Adds / replaces the 'ItemValue' column using user-supplied weights.
-
-    multipliers example:
-        {"heroic_wis": 35, "HP": 1, "Mana": 1, "AC": 1}
-    """
     df = df.copy()
 
-    # ensure every stat column exists and is numeric
-    for stat, weight in multipliers.items():
+    for stat in multipliers:
         if stat not in df.columns:
             df[stat] = 0
         df[stat] = pd.to_numeric(df[stat], errors="coerce").fillna(0)
 
-    # vectorised dot-product
-    df["ItemValue"] = df[list(multipliers.keys())].mul(
+    df["ItemValue"] = df[list(multipliers)].mul(
         pd.Series(multipliers), axis=1
     ).sum(axis=1)
-
     return df
+
+
+# ────────────────────────────────────────────────────────────────────
+# Ornament detector
+# ────────────────────────────────────────────────────────────────────
+_ORNAMENT_TYPES = {20, 21, 22}
+_ORNAMENT_SLOTS: Set[str] = {"21", "22"}
+
+
+def _slot_string_to_set(slot_str: str) -> Set[str]:
+    """
+    Extract numeric tokens from SlotCompat. Accepts '21 22', '21/22', etc.
+    """
+    return set(re.findall(r"\d+", slot_str))
+
+
+def is_ornament(row: pd.Series) -> bool:
+    """
+    True when the augment is purely cosmetic.
+
+    Triggers if ANY of the following are true:
+    • AugType is 20, 21, or 22
+    • SlotCompat contains only 21/22
+    • Name contains the word 'ornament'
+    """
+    # AugType check
+    augtype = row.get("AugType") or row.get("augtype")
+    try:
+        if int(augtype) in _ORNAMENT_TYPES:
+            return True
+    except Exception:
+        pass
+
+    # SlotCompat check
+    slot_set = _slot_string_to_set(str(row.get("SlotCompat", "")))
+    if slot_set and slot_set.issubset(_ORNAMENT_SLOTS):
+        return True
+
+    # Name keyword
+    if "ornament" in str(row.get("Name", "")).lower():
+        return True
+
+    return False
