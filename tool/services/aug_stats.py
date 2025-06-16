@@ -1,19 +1,16 @@
-# tool/services/aug_stats.py
 from pathlib import Path
 import re
 
 import pandas as pd
 import streamlit as st
 
-
 # ------------------------------------------------------------------
-#  CSV lives in the repo root
+# CSV lives in the repository root
 # ------------------------------------------------------------------
 CSV_PATH = Path(__file__).resolve().parents[2] / "all_augmentations.csv"
 
-# Columns we actually care about, in canonical snake-case
+# Canonical column names and the variants that may appear in the CSV
 KEEP_COLS = {
-    # canonical : possible raw header variants
     "id":          {"id", "ID"},
     "ac":          {"ac", "AC"},
     "hp":          {"hp", "HP", "hitpoints"},
@@ -28,24 +25,25 @@ KEEP_COLS = {
 }
 
 
-def _snake(s: str) -> str:
-    """simple header normaliser: lower-case, replace non-alnum with '_'."""
-    return re.sub(r"[^0-9a-z]+", "_", s.lower()).strip("_")
+def _snake(text: str) -> str:
+    """Lower-case and replace non-alphanumeric with underscores."""
+    return re.sub(r"[^0-9a-z]+", "_", text.lower()).strip("_")
 
 
 @st.cache_data(show_spinner=False)
 def load_stats() -> pd.DataFrame:
     """
-    Load the static augmentation table, normalise headers, keep only the
-    stat columns we care about, coerce to int, return keyed by 'id'.
+    Load the augmentation stat table, normalise headers, keep only wanted
+    columns, coerce to int, and return a DataFrame keyed by 'ID'.
     """
     raw = pd.read_csv(CSV_PATH)
 
-    # Build a mapping raw_col → canonical_name whenever possible
-    col_map = {}
+    # Map raw headers to canonical names
+    col_map: dict[str, str] = {}
     for canon, variants in KEEP_COLS.items():
+        normalized_variants = {_snake(v) for v in variants}
         for col in raw.columns:
-            if _snake(col) in { _snake(v) for v in variants }:
+            if _snake(col) in normalized_variants:
                 col_map[col] = canon
                 break
 
@@ -64,4 +62,6 @@ def load_stats() -> pd.DataFrame:
         .set_index("id")
     )
 
+    # expose the numeric ID column for downstream merge logic
+    df = df.reset_index().rename(columns={"id": "ID"})
     return df
