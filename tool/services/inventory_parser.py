@@ -1,26 +1,9 @@
 """
-Parse EverQuest `/output inventory` files produced in *tab-separated* format.
+Inventory-file helpers
 
-The game outputs five columns with a header row:
-
-    Location<Name>ID<Count><Slots>
-
-Key facts for augment detection
--------------------------------
-• Rows whose **Location** field contains “-Slot” hold *either* an augment
-  or an empty slot filler.
-
-• An augment row always has
-      • Location like “Head-Slot1”, “Charm-Slot2”, …
-      • Name  ≠ “Empty”
-      • ID    > 0
-
-• The equipment slot we care about is the part *before* the first “-”,
-  e.g. “Head-Slot2” → “Head”.
-
-The parser returns one row per augment with columns
-    EquipSlot   canonical slot name (Ear, Head, …)
-    ID          integer item ID of the augment
+• parse_inventory(text)               → equipped augments (one per equip slot)
+• parse_all_augments(text, aug_db)    → every augment ID in the file,
+                                        including those in bags / bank
 """
 
 from __future__ import annotations
@@ -31,36 +14,21 @@ from typing import List
 
 import pandas as pd
 
-# canonical EverQuest equipment slots
+# canonical equip slots
 EQ_SLOTS: List[str] = [
-    "Charm",
-    "Ear",
-    "Head",
-    "Face",
-    "Neck",
-    "Shoulders",
-    "Arms",
-    "Back",
-    "Wrist",
-    "Range",
-    "Hands",
-    "Primary",
-    "Secondary",
-    "Fingers",
-    "Chest",
-    "Legs",
-    "Feet",
-    "Waist",
-    "Ammo",
+    "Charm", "Ear", "Head", "Face", "Neck", "Shoulders", "Arms", "Back",
+    "Wrist", "Range", "Hands", "Primary", "Secondary", "Fingers",
+    "Chest", "Legs", "Feet", "Waist", "Ammo",
 ]
 
-# compile once
-_SLOT_PREFIX = re.compile(r"^(?P<slot>[^-\t]+)-Slot\d+")
+_AUG_SLOT_PREFIX = re.compile(r"^(?P<slot>[^-\t]+)-Slot\d+")
 
 
+# ────────────────────────────────────────────────────────────────────────
+# TSV loader (shared)
+# ────────────────────────────────────────────────────────────────────────
 def _read_tsv(text: str) -> pd.DataFrame:
-    """Load the tab-separated inventory text into a DataFrame."""
-    # Some files have Windows CRLF and blank lines; pandas handles both.
+    """Return the raw inventory file as a DataFrame."""
     return pd.read_csv(
         io.StringIO(text),
         sep="\t",
@@ -71,44 +39,45 @@ def _read_tsv(text: str) -> pd.DataFrame:
     ).fillna({"Location": "", "Name": "", "ID": 0})
 
 
+# ────────────────────────────────────────────────────────────────────────
+# Equipped augments (one per slot)
+# ────────────────────────────────────────────────────────────────────────
 def parse_inventory(text: str) -> pd.DataFrame:
-    """
-    Extract augments currently equipped.
-
-    Returns a DataFrame with columns: EquipSlot, ID
-    """
     df = _read_tsv(text)
 
-    # keep only rows like "Head-Slot1", "Charm-Slot2", etc.
-    mask_aug_row = (
+    mask = (
         df["Location"].str.contains("-Slot", na=False)
         & (df["Name"].str.casefold() != "empty")
         & (df["ID"] > 0)
     )
-    aug_rows = df.loc[mask_aug_row, ["Location", "ID"]].copy()
-
+    aug_rows = df.loc[mask, ["Location", "ID"]].copy()
     if aug_rows.empty:
         return pd.DataFrame(columns=["EquipSlot", "ID"])
 
-    # Extract the equipment slot prefix
     aug_rows["EquipSlot"] = (
-        aug_rows["Location"]
-        .str.extract(_SLOT_PREFIX)["slot"]
-        .str.strip()
+        aug_rows["Location"].str.extract(_AUG_SLOT_PREFIX)["slot"].str.strip()
     )
-
-    # Normalise: EverQuest uses singular (“Fingers”) vs our EQ_SLOTS list
-    # All inventory prefixes already match the EQ_SLOTS capitalisation.
-
-    # Drop rows whose slot is not in the canonical list (guards against bags,
-    # bank slots, etc.)
     aug_rows = aug_rows[aug_rows["EquipSlot"].isin(EQ_SLOTS)]
-
-    # One augment per equipment slot – keep first occurrence
-    result = (
+    return (
         aug_rows[["EquipSlot", "ID"]]
         .drop_duplicates(subset="EquipSlot", keep="first")
         .reset_index(drop=True)
     )
 
-    return result
+
+# ────────────────────────────────────────────────────────────────────────
+# ALL augments in the file (bags, bank, etc.)
+# ────────────────────────────────────────────────────────────────────────
+def parse_all_augments(text: str, aug_db: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return every row whose ID matches an augment in aug_db,
+    regardless of where it is located.
+    Columns: Location, ID
+    """
+    df = _read_tsv(text)
+    mask = (df["ID"] > 0) & (df["Name"].str.casefold() != "empty")
+    df = df.loc[mask, ["Location", "ID"]]
+
+    # inner-join to keep only IDs that exist in the augmentation DB
+    df = df.merge(aug_db.reset_index()[["ID"]], on="ID", how="inner")
+    return df.reset_index(drop=True)

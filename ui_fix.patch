@@ -1,0 +1,69 @@
+--- a/tool/ui/eq_aug_ui.py
++++ b/tool/ui/eq_aug_ui.py
+@@
+-STAT_ORDER = [
+-    "ItemValue", "AC", "HP", "Mana", "Attack",
+-]
++STAT_ORDER = [
++    "ItemValue", "AC", "HP", "Mana", "Attack",
++    "HStr", "HSta", "HAgi", "HDex", "HInt", "HWis",
++]
+
+@@
+ APP_TITLE = "EverQuest Augmentation Tool — DEV"
+
++# -------------------------------------------------------------------
++# KPI boxes (always visible)
++# -------------------------------------------------------------------
++def _render_kpi_boxes(eq_df, un_df):
++    total_value = int(eq_df["ItemValue"].sum()) if not eq_df.empty else 0
++    upgradable  = un_df["Location"].nunique()   if not un_df.empty else 0
++
++    left, right = st.columns(2)
++    with left:
++        st.metric("Total ItemValue", f"{total_value:,}")
++    with right:
++        st.metric("Upgradable Slots", str(upgradable))
++
+
+@@
+-    uploaded = st.sidebar.file_uploader(
+-        "Drag the Raidloot export here ↴",
+-        type=UPLOAD_TYPES["text"],
+-        accept_multiple_files=False,
+-    )
+-
+-    if not uploaded:
+-        st.info("Upload a Raidloot **/output inventory** export to begin.")
+-        return
++    uploaded = st.sidebar.file_uploader(
++        "Drag the Raidloot export here ↴",
++        type=UPLOAD_TYPES["text"],
++        accept_multiple_files=False,
++    )
++
++    # placeholders so KPI boxes always render
++    eq_df = pd.DataFrame()
++    un_df = pd.DataFrame()
+
+@@
+-    try:
++    if uploaded:
++        try:
+
+@@
+-            _render_table(eq_df, "Equipped Augments")
+-            _render_table(un_df, "Unequipped / Empty Slots")
+-
+-        except Exception as err:
+-            st.error(f"❌ Parser or scoring failed – {err}")
+-            st.exception(err)
++            _render_table(eq_df, "Equipped Augments")
++            _render_table(un_df, "Unequipped / Empty Slots")
++
++        except Exception as err:
++            st.error(f"❌ Parser or scoring failed – {err}")
++            st.exception(err)
++
++    # show KPIs even before upload
++    _render_kpi_boxes(eq_df, un_df)
