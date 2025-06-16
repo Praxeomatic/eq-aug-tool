@@ -15,10 +15,13 @@ from tool.services.valuation import (
 # constants
 # ----------------------------------------------------------------------
 UPLOAD_TYPES = {"text": ["txt", "tsv"]}
+
+# ↓ ONLY THIS LINE CHANGED: heroic stats inserted after "Attack"
 STAT_ORDER = [
     "ItemValue", "AC", "HP", "Mana", "Attack",
     "HStr", "HSta", "HAgi", "HDex", "HInt", "HWis",
 ]
+
 APP_TITLE = "EverQuest Augmentation Tool — DEV"
 
 # ----------------------------------------------------------------------
@@ -43,7 +46,7 @@ def _load_inventory_text(text: str) -> Tuple[list[dict], list[dict]]:
 
 
 def _sidebar_weights() -> Dict[str, int]:
-    st.sidebar.markdown("### Stat&nbsp;Weights")
+    st.sidebar.markdown("### Stat Weights")
     return {
         stat: st.sidebar.number_input(
             stat, min_value=0, max_value=100, value=default, step=1
