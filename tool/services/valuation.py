@@ -1,7 +1,8 @@
-# tool/services/valuation.py
+"""Augmentation valuation & filtering logic."""
+
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict
 
 import pandas as pd
 import streamlit as st
@@ -9,7 +10,7 @@ import streamlit as st
 from .aug_stats import load_stats
 
 # ------------------------------------------------------------------
-# 1 – default stat weights (sidebar sliders)
+# Static weights
 # ------------------------------------------------------------------
 DEFAULT_WEIGHTS: Dict[str, int] = {
     "AC": 1,
@@ -24,59 +25,42 @@ DEFAULT_WEIGHTS: Dict[str, int] = {
     "HWis": 1,
 }
 
-# ------------------------------------------------------------------
-# 2 – helper: ensure column 'ID' exists
-# ------------------------------------------------------------------
-def _normalise_id_column(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty and not df.columns.any():
-        df["ID"] = pd.Series(dtype=int)
-        return df
-
-    if "ID" in df.columns:
-        return df
-
-    for alt in ("id", "Id", "item_id"):
-        if alt in df.columns:
-            return df.rename(columns={alt: "ID"})
-
-    raise KeyError(
-        "Inventory data must contain an ID column "
-        "(accepted: ID, Id, id, item_id). "
-        f"Found columns: {list(df.columns)}"
-    )
+AUG_IDS = set(load_stats()["ID"])
 
 # ------------------------------------------------------------------
-# 3 – merge static stats
+# Helpers
 # ------------------------------------------------------------------
+def _filter_augs(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only rows whose ID is a valid augmentation."""
+    if df.empty or "ID" not in df.columns:         # ← guard for empty input
+        return df.copy()
+    return df[df["ID"].isin(AUG_IDS)].copy()
+
+
 def attach_stats(df: pd.DataFrame) -> pd.DataFrame:
-    df = _normalise_id_column(df)
+    """Merge inventory rows with static augmentation stats."""
+    df = _filter_augs(df)
+    if df.empty:
+        return df
     stats_df = load_stats()
     return df.merge(stats_df, on="ID", how="left")
 
-# ------------------------------------------------------------------
-# 4 – add weighted values and total
-# ------------------------------------------------------------------
-def add_item_value(
-    df: pd.DataFrame,
-    weights: Dict[str, int] | None = None,
-) -> pd.DataFrame:
+
+def add_item_value(df: pd.DataFrame, weights: Dict[str, int]) -> pd.DataFrame:
+    """Add per-stat weighted columns and total ItemValue score."""
+    if df.empty:
+        return df
+
     if not weights:
         weights = DEFAULT_WEIGHTS
 
-    # ensure every weighted stat column exists
     for stat in weights:
         if stat not in df.columns:
             df[stat] = 0
 
-    # weighted stat columns
     for stat, w in weights.items():
         df[f"{stat}_w"] = df[stat].fillna(0) * w
 
-    # total value
-    weight_cols: List[str] = [f"{s}_w" for s in weights]
-    df["score"] = df[weight_cols].sum(axis=1)
-
-    # alias expected by UI
-    df["ItemValue"] = df["score"]
-
+    weight_cols = [f"{s}_w" for s in weights]
+    df["ItemValue"] = df[weight_cols].sum(axis=1)
     return df
