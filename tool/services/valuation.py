@@ -1,66 +1,69 @@
-"""Augmentation valuation & filtering logic."""
+"""
+Valuation helpers for the EverQuest Aug Tool.
+
+• attach_stats()  – left-join equipped augment IDs to the master database
+• add_item_value() – compute weighted ItemValue using user multipliers
+"""
 
 from __future__ import annotations
 
-from typing import Dict
-
 import pandas as pd
-import streamlit as st
-
-from .aug_stats import load_stats
-
-# ------------------------------------------------------------------
-# Static weights
-# ------------------------------------------------------------------
-DEFAULT_WEIGHTS: Dict[str, int] = {
-    "AC": 1,
-    "HP": 1,
-    "Mana": 1,
-    "Attack": 1,
-    "HStr": 1,
-    "HSta": 1,
-    "HAgi": 1,
-    "HDex": 1,
-    "HInt": 1,
-    "HWis": 1,
-}
-
-AUG_IDS = set(load_stats()["ID"])
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-def _filter_augs(df: pd.DataFrame) -> pd.DataFrame:
-    """Keep only rows whose ID is a valid augmentation."""
-    if df.empty or "ID" not in df.columns:         # ← guard for empty input
-        return df.copy()
-    return df[df["ID"].isin(AUG_IDS)].copy()
 
 
-def attach_stats(df: pd.DataFrame) -> pd.DataFrame:
-    """Merge inventory rows with static augmentation stats."""
-    df = _filter_augs(df)
-    if df.empty:
-        return df
-    stats_df = load_stats()
-    return df.merge(stats_df, on="ID", how="left")
+# ---------------------------------------------------------------------
+# Join equipped IDs to the augmentation database
+# ---------------------------------------------------------------------
+def attach_stats(
+    equipped: pd.DataFrame,
+    aug_db: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Parameters
+    ----------
+    equipped : DataFrame
+        Columns: EquipSlot, ID (integer)
+    aug_db : DataFrame
+        Master aug database **indexed by ID** (see _load_aug_db).
+
+    Returns
+    -------
+    DataFrame
+        All columns from `equipped` plus the stat columns from `aug_db`.
+    """
+    equipped = equipped.copy()
+    equipped["ID"] = pd.to_numeric(equipped["ID"], errors="coerce").astype("Int64")
+
+    # aug_db has ID as its index → merge on right_index
+    merged = equipped.merge(
+        aug_db, left_on="ID", right_index=True, how="left", sort=False
+    )
+    return merged
 
 
-def add_item_value(df: pd.DataFrame, weights: Dict[str, int]) -> pd.DataFrame:
-    """Add per-stat weighted columns and total ItemValue score."""
-    if df.empty:
-        return df
+# ---------------------------------------------------------------------
+# Compute ItemValue column
+# ---------------------------------------------------------------------
+def add_item_value(
+    df: pd.DataFrame,
+    multipliers: dict[str, float],
+) -> pd.DataFrame:
+    """
+    Adds / replaces the 'ItemValue' column using user-supplied weights.
 
-    if not weights:
-        weights = DEFAULT_WEIGHTS
+    multipliers example:
+        {"heroic_wis": 35, "HP": 1, "Mana": 1, "AC": 1}
+    """
+    df = df.copy()
 
-    for stat in weights:
+    # ensure every stat column exists and is numeric
+    for stat, weight in multipliers.items():
         if stat not in df.columns:
             df[stat] = 0
+        df[stat] = pd.to_numeric(df[stat], errors="coerce").fillna(0)
 
-    for stat, w in weights.items():
-        df[f"{stat}_w"] = df[stat].fillna(0) * w
+    # vectorised dot-product
+    df["ItemValue"] = df[list(multipliers.keys())].mul(
+        pd.Series(multipliers), axis=1
+    ).sum(axis=1)
 
-    weight_cols = [f"{s}_w" for s in weights]
-    df["ItemValue"] = df[weight_cols].sum(axis=1)
     return df
