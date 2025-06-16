@@ -1,92 +1,68 @@
 """
-Light-weight parser for EverQuest `/output inventory` text files.
+inventory_parser.py  –  shared by both branches
 
-Returns two lists of dicts:
-    • equipped  – augment rows actually slotted into gear (Location contains “-Slot” and ID ≠ 0)
-    • unequipped – augment-like items that are not currently slotted
-
-This version is intentionally simple; improve the heuristics as needed.
+parse_inventory_txt(text) →
+    Tuple[List[dict], List[dict]]
+        • equipped   : rows with ID in master augmentation list and ID != 0
+        • unequipped : rows with ID in master augmentation list and ID == 0
 """
 
 from __future__ import annotations
-import csv, io, re
-from typing import List, Dict, Tuple
+
+from typing import List, Tuple
+
+from tool.services.aug_stats import load_stats
+
+# ---------------------------------------------------------------------
+# Build a set of valid augmentation item-IDs from the stat table
+# ---------------------------------------------------------------------
+_AUG_IDS = set(load_stats()["ID"])
 
 
-AUG_NAME_PATTERN = re.compile(r"(shard|stone|augment|aug|gem)", re.I)
-
-
-def _find_header_index(lines: list[str]) -> int | None:
-    """Return the index where the 'Location\tName\tID' header line occurs."""
-    for i, ln in enumerate(lines):
-        if ln.lower().startswith("location\tname\tid"):
-            return i
-    return None
-
-
-def parse_inventory_txt(text: str) -> Tuple[List[Dict], List[Dict]]:
+# ---------------------------------------------------------------------
+def parse_inventory_txt(text: str) -> Tuple[List[dict], List[dict]]:
     """
-    Parse the TSV inventory dump.
+    Parse the /output inventory TSV exported by Raidloot.
 
-    Parameters
-    ----------
-    text : str
-        Raw text from the `/output inventory` file.
+    Keeps only rows whose numeric ID exists in _AUG_IDS.
+    Splits into:
 
-    Returns
-    -------
-    equipped : list[dict]
-    unequipped : list[dict]
+        equipped   – rows with ID != 0
+        unequipped – rows with ID == 0   (empty slots)
+
+    Returns two lists of dicts, each ready to become a DataFrame.
+    Dict keys: Location, Name, ID, Slot (if present).
     """
-    equipped: list[dict] = []
-    unequipped: list[dict] = []
+    equipped, unequipped = [], []
 
-    lines = text.splitlines()
-    header_idx = _find_header_index(lines)
-    if header_idx is None:
-        # No header found – return empty results
-        return equipped, unequipped
-
-    reader = csv.reader(io.StringIO("\n".join(lines[header_idx:])), delimiter="\t")
-    header = next(reader, None)
-    if not header or header[:3] != ["Location", "Name", "ID"]:
-        return equipped, unequipped  # malformed header
-
-    for row in reader:
-        if len(row) < 3:
+    for line in text.splitlines():
+        if not line.strip():
             continue
-        location, name, id_raw = row[:3]
+
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue  # malformed row
+
+        loc, name, item_id, *rest = parts
+
+        if item_id.lower() == "id":  # header row
+            continue
 
         try:
-            aug_id = int(id_raw)
+            item_id_int = int(item_id)
         except ValueError:
-            continue  # skip rows with non-numeric IDs
+            continue  # non-numeric ID
 
-        count = int(row[3]) if len(row) > 3 and row[3].isdigit() else 0
+        if item_id_int not in _AUG_IDS:
+            continue  # not an augmentation item
 
-        # ----- classify ------------------------------------------------------
-        if "-Slot" in location and aug_id != 0:
-            # Example Location: "Ear-Slot1"
-            slot_root = location.split("-")[0]  # Ear, Head, Fingers, …
-            equipped.append(
-                {
-                    "Slot": slot_root,
-                    "Location": location,
-                    "Name": name,
-                    "ID": aug_id,
-                    "Count": count,
-                }
-            )
-        else:
-            # crude heuristic: treat as augment if name looks like one
-            if aug_id != 0 and AUG_NAME_PATTERN.search(name):
-                unequipped.append(
-                    {
-                        "Container": location,
-                        "Name": name,
-                        "ID": aug_id,
-                        "Count": count,
-                    }
-                )
+        row = {
+            "Location": loc,
+            "Name": name,
+            "ID": item_id_int,
+            "Slot": rest[1] if len(rest) > 1 else "",
+        }
+
+        (equipped if item_id_int else unequipped).append(row)
 
     return equipped, unequipped
