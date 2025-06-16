@@ -1,31 +1,39 @@
-"""
-tool.services.aug_stats
------------------------
-Loads `augmentation_only_items.csv`, keeping only the columns we need.
-Uses Streamlit's st.cache_data so it loads exactly once per session.
-"""
-
-from __future__ import annotations
+# tool/services/aug_stats.py
 from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
-# Columns to keep for scoring
+# ---------------------------------------------------------------------
+# Location of the static augmentation stat table
+# ---------------------------------------------------------------------
+CSV_PATH = Path(__file__).resolve().parent.parent / "all_augmentations.csv"
+
+# Columns exactly as they appear in the CSV
 STAT_COLS = [
-    "ID", "AC", "HP", "Mana", "Attack",
-    "HStr", "HSta", "HDex", "HAgi", "HWis", "HInt",
+    "id",
+    "ac", "hp", "mana", "attack",
+    "heroic_str", "heroic_sta", "heroic_agi",
+    "heroic_dex", "heroic_int", "heroic_wis",
 ]
 
 
-@st.cache_data(show_spinner="Loading augmentation stats …")
-def load_stats(csv_path: str | Path = "augmentation_only_items.csv") -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def load_stats() -> pd.DataFrame:
     """
-    Return a DataFrame with the stat columns indexed by item ID.
+    Read the static augmentation-stats table and return a numeric
+    DataFrame indexed by augmentation ID.
+    """
+    df = pd.read_csv(CSV_PATH, usecols=STAT_COLS)
 
-    Raises
-    ------
-    FileNotFoundError
-        If the CSV is not found at the given path.
-    """
-    df = pd.read_csv(csv_path, usecols=STAT_COLS)
+    # ensure numeric types and fill blanks with zero
+    numeric_cols = [c for c in STAT_COLS if c != "id"]
+    df[numeric_cols] = (
+        df[numeric_cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+
+    df.set_index("id", inplace=True)
     return df
