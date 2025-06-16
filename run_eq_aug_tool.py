@@ -1,15 +1,23 @@
 """
-EverQuest Augmentation Tool – Streamlit launcher
-Run with:
-    streamlit run run_eq_aug_tool.py
+Entry-point for Streamlit.
+
+• If tool.ui.eq_aug_ui exposes a `render()` function (newer layout), call it.
+• Otherwise just import the module so its top-level code runs
+  (older “Beautiful” pink/purple/black layout).
 """
+
+import importlib
 import streamlit as st
 
-# Page-wide configuration – must be first Streamlit command
-st.set_page_config(page_title="EQ Aug Tool v2", layout="wide")
+# first Streamlit call
+st.set_page_config(
+    page_title="EverQuest Augmentation Tool — DEV",
+    page_icon="🧪",
+    layout="wide",
+)
 
-# Import UI module (registers `render`)
-from tool.ui.eq_aug_ui import render   # noqa: E402
+ui_module = importlib.import_module("tool.ui.eq_aug_ui")
 
-# Draw the UI on every rerun
-render()
+if hasattr(ui_module, "render"):
+    ui_module.render()  # newer versions
+# else: merely importing ui_module has already executed the original layout
