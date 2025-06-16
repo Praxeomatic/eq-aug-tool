@@ -1,4 +1,3 @@
-# tool/ui/eq_aug_ui.py
 from __future__ import annotations
 
 from typing import Dict, Tuple
@@ -26,12 +25,16 @@ APP_TITLE = "EverQuest Augmentation Tool — DEV"
 # helpers
 # ----------------------------------------------------------------------
 def _load_inventory_text(text: str) -> Tuple[list[dict], list[dict]]:
+    """
+    Parse a Raidloot /output inventory TSV export.
+    Returns lists of dicts for equipped and unequipped slots.
+    """
     equipped, unequipped = [], []
     for line in text.splitlines():
         if not line.strip():
             continue
         parts = line.split("\t")
-        if len(parts) < 5:
+        if len(parts) < 5:  # Location, Name, ID, Count, Slots
             continue
         loc, name, item_id, *_ = parts
         row = {"Location": loc, "Name": name, "ID": int(item_id)}
@@ -40,9 +43,11 @@ def _load_inventory_text(text: str) -> Tuple[list[dict], list[dict]]:
 
 
 def _sidebar_weights() -> Dict[str, int]:
-    st.sidebar.markdown("### Stat Weights")
+    st.sidebar.markdown("### Stat&nbsp;Weights")
     return {
-        stat: st.sidebar.slider(stat, 0, 100, default)
+        stat: st.sidebar.number_input(
+            stat, min_value=0, max_value=100, value=default, step=1
+        )
         for stat, default in DEFAULT_WEIGHTS.items()
     }
 
@@ -57,16 +62,19 @@ def _render_table(df: pd.DataFrame, label: str):
 
 
 # ----------------------------------------------------------------------
-# main render function (called by run_eq_aug_tool.py)
+# main render function
 # ----------------------------------------------------------------------
 def render():
     st.title(APP_TITLE)
 
+    # sidebar
     weights = _sidebar_weights()
     st.sidebar.markdown("### Upload inventory.txt")
 
     uploaded = st.sidebar.file_uploader(
-        "Drag the Raidloot export here ↴", type=UPLOAD_TYPES["text"]
+        "Drag the Raidloot export here ↴",
+        type=UPLOAD_TYPES["text"],
+        accept_multiple_files=False,
     )
 
     if not uploaded:
