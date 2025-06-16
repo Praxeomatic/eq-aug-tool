@@ -1,3 +1,4 @@
+# tool/ui/eq_aug_ui.py
 from __future__ import annotations
 
 from typing import Dict, Tuple
@@ -16,7 +17,6 @@ from tool.services.valuation import (
 # ----------------------------------------------------------------------
 UPLOAD_TYPES = {"text": ["txt", "tsv"]}
 
-# ↓ ONLY THIS LINE CHANGED: heroic stats inserted after "Attack"
 STAT_ORDER = [
     "ItemValue", "AC", "HP", "Mana", "Attack",
     "HStr", "HSta", "HAgi", "HDex", "HInt", "HWis",
@@ -28,10 +28,7 @@ APP_TITLE = "EverQuest Augmentation Tool — DEV"
 # helpers
 # ----------------------------------------------------------------------
 def _load_inventory_text(text: str) -> Tuple[list[dict], list[dict]]:
-    """
-    Parse a Raidloot /output inventory TSV export.
-    Returns lists of dicts for equipped and unequipped slots.
-    """
+    """Parse Raidloot /output inventory export into equipped/unequipped lists."""
     equipped, unequipped = [], []
     for line in text.splitlines():
         if not line.strip():
@@ -70,7 +67,6 @@ def _render_table(df: pd.DataFrame, label: str):
 def render():
     st.title(APP_TITLE)
 
-    # sidebar
     weights = _sidebar_weights()
     st.sidebar.markdown("### Upload inventory.txt")
 
