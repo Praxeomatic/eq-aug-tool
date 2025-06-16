@@ -18,7 +18,7 @@ UPLOAD_TYPES = {"text": ["txt", "tsv"]}
 
 STAT_ORDER = [
     "ItemValue", "AC", "HP", "Mana", "Attack",
-    "HStr", "HSta", "HAgi", "HDex", "HInt", "HWis",  # ← heroic stats added
+    "HStr", "HSta", "HAgi", "HDex", "HInt", "HWis",
 ]
 
 APP_TITLE = "EverQuest Augmentation Tool — DEV"
@@ -27,15 +27,20 @@ APP_TITLE = "EverQuest Augmentation Tool — DEV"
 # helpers
 # ──────────────────────────────────────────────────────────────────────
 def _load_inventory_text(text: str) -> Tuple[list[dict], list[dict]]:
-    """Parse Raidloot /output inventory TSV into equipped / unequipped lists."""
+    """
+    Parse Raidloot /output inventory TSV into equipped / unequipped lists.
+    Skips the header row where the third field is literally "ID".
+    """
     equipped, unequipped = [], []
     for line in text.splitlines():
         if not line.strip():
             continue
         parts = line.split("\t")
-        if len(parts) < 5:  # Location, Name, ID, Count, Slots
+        if len(parts) < 5:                      # Location, Name, ID, Count, Slots
             continue
         loc, name, item_id, *_ = parts
+        if item_id.lower() == "id":             # header row → skip
+            continue
         row = {"Location": loc, "Name": name, "ID": int(item_id)}
         (equipped if row["ID"] else unequipped).append(row)
     return equipped, unequipped
@@ -61,7 +66,6 @@ def _render_table(df: pd.DataFrame, label: str):
 
 
 def _render_kpi_boxes(eq_df: pd.DataFrame, un_df: pd.DataFrame):
-    """Show KPI boxes even before a file is uploaded."""
     total_value = int(eq_df["ItemValue"].sum()) if not eq_df.empty else 0
     upgradable = un_df["Location"].nunique() if not un_df.empty else 0
 
@@ -78,7 +82,6 @@ def _render_kpi_boxes(eq_df: pd.DataFrame, un_df: pd.DataFrame):
 def render():
     st.title(APP_TITLE)
 
-    # sidebar
     weights = _sidebar_weights()
     st.sidebar.markdown("### Upload inventory.txt")
 
@@ -88,8 +91,7 @@ def render():
         accept_multiple_files=False,
     )
 
-    # placeholders so KPI boxes always render
-    eq_df = pd.DataFrame()
+    eq_df = pd.DataFrame()   # placeholders so KPI boxes always render
     un_df = pd.DataFrame()
 
     if uploaded:
@@ -110,5 +112,4 @@ def render():
             st.error(f"❌ Parser or scoring failed – {err}")
             st.exception(err)
 
-    # KPI boxes always visible
     _render_kpi_boxes(eq_df, un_df)
