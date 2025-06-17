@@ -1,6 +1,6 @@
 """
 EverQuest Augmentation Tool – DEV UI
-(two-column layout: left = Blue + Yellow + Orange; right = data tables)
+(two-column layout: left = Blue+Yellow+Orange, right = tables)
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from tool.services.inventory_parser import parse_inventory, parse_all_augments  
 from tool.services.valuation import attach_stats, add_item_value, is_ornament  # noqa: E402
 from tool.ui.purple_weights import render as render_weights  # noqa: E402
 
-# canonical stats
+# ───────────────────── canonical stat setup ───────────────────────
 _HEROIC_MAP: Dict[str, List[str]] = {
     "heroic_str": ["HStr", "HSTR", "HeroicSTR"],
     "heroic_sta": ["HSta", "HSTA", "HeroicSTA"],
@@ -41,7 +41,7 @@ _DISPLAY_COLS: List[str] = (
     ["Slot", "Name", "ItemValue"] + _BASE_STATS + list(_HEROIC_MAP.keys())
 )
 
-
+# ───────────────────── small helpers ──────────────────────────────
 def _bar(color: str, label: str) -> None:
     st.markdown(
         f"<div style='background-color:{color};padding:6px;border-radius:4px;"
@@ -55,7 +55,6 @@ def _bar(color: str, label: str) -> None:
 def _load_aug_db(path: str = "augmentation_only_items.csv") -> pd.DataFrame:
     df = pd.read_csv(path, low_memory=False)
 
-    # normalise ID + Name
     if "ID" not in df.columns:
         for alt in ("id", "Id", "item_id", "ITEMID"):
             if alt in df.columns:
@@ -68,7 +67,6 @@ def _load_aug_db(path: str = "augmentation_only_items.csv") -> pd.DataFrame:
                 df.rename(columns={alt: "Name"}, inplace=True)
                 break
 
-    # stat aliases
     base_aliases = {
         "AC": ["Ac", "ac", "ACmod"],
         "HP": ["Hp", "hp", "Health"],
@@ -94,12 +92,19 @@ def _load_aug_db(path: str = "augmentation_only_items.csv") -> pd.DataFrame:
 
     return df.set_index("ID")
 
-
+# ───────────────────── main render ────────────────────────────────
 def render() -> None:
+    # Title & instruction
+    st.title("Prax Aug Tool – Dev Branch")
+    st.markdown(
+        'Type **`/output inventory`** in EverQuest, then drag-drop the generated '
+        '`CHARACTER_inventory.txt` file into the uploader below.'
+    )
+
     cookies = EncryptedCookieManager(prefix="eq-augs/", password=os.getenv("COOKIES_KEY", "debug"))
     aug_db = _load_aug_db()
 
-    # sidebar
+    # sidebar inputs
     with st.sidebar:
         _bar("#ff69b4", "Character / Era")
         character = st.text_input("Character name", value="MyWarrior")
@@ -108,10 +113,17 @@ def render() -> None:
         _bar("#984ea3", "Stat Weights")
         weights = render_weights(cookies, character)
 
-    _bar("#d73027", "Drop character_inventory.txt here")
-    eq_df, un_df = _upload_inventory(weights, aug_db)
+    # uploader widget (no extra banner)
+    upload = st.file_uploader(
+        "Drag and drop file here", type="txt", key="inventory_uploader"
+    )
+    if upload:
+        text = upload.read().decode("utf-8", errors="ignore")
+        eq_df, un_df = _process_inventory(text, weights, aug_db)
+    else:
+        eq_df, un_df = pd.DataFrame(), pd.DataFrame()
 
-    # --- two-column layout (1:4 ratio) ------------------------------
+    # two-column layout
     col_left, col_right = st.columns([1, 4])
 
     with col_left:
@@ -131,20 +143,11 @@ def render() -> None:
         _bar("#4daf4a", "Unequipped Augs")                    # GREEN
         _table(un_df)
 
-
-# ────────────────────────────────────────────────────────────────
-# inventory helpers
-# ────────────────────────────────────────────────────────────────
-def _upload_inventory(
-    weights: dict[str, float], aug_db: pd.DataFrame
+# ───────────────────── inventory processing ──────────────────────
+def _process_inventory(
+    text: str, weights: dict[str, float], aug_db: pd.DataFrame
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    upload = st.file_uploader("", type="txt", key="inventory_uploader")
-    if not upload:
-        return pd.DataFrame(), pd.DataFrame()
-
     try:
-        text = upload.read().decode("utf-8", errors="ignore")
-
         equipped = parse_inventory(text)
         if equipped.empty:
             st.warning("No augment IDs detected in the uploaded file.")
@@ -171,10 +174,7 @@ def _upload_inventory(
         st.code(textwrap.indent("".join(traceback.format_exception(exc)), "    "))
         return pd.DataFrame(), pd.DataFrame()
 
-
-# ────────────────────────────────────────────────────────────────
-# table renderer (blank out numeric zeros)
-# ────────────────────────────────────────────────────────────────
+# ───────────────────── table renderer ────────────────────────────
 def _table(df: pd.DataFrame) -> None:
     if df.empty:
         st.write("No data")
